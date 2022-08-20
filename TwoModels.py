@@ -1,4 +1,3 @@
-import json
 import pandas as pd
 import numpy as np
 import codecs
@@ -10,7 +9,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import ExtraTreesClassifier
 import sys
 import joblib
-import csv
+import pickle
 
 ET_PATH = 'model_ET.bin'
 
@@ -50,12 +49,10 @@ def train_T(agora_data_prime):
         tmp = make_tokens(' '.join(row['props']))
         etalonsprops[agora_data_prime.product_id[index]] = set(tmp)
 
-    with open("etalonsname.csv", "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerows(etalonsname.items())
-    with open("etalonsprops.csv", "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerows(etalonsprops.items())
+    with open('etalons.bin', "wb") as f:
+        pickle.dump(etalonsname, f)
+    with open('etalonsprops.bin', "wb") as f:
+        pickle.dump(etalonsprops, f)
 
 # tokenization model
 def model_T(data_goods):
@@ -69,10 +66,10 @@ def model_T(data_goods):
 
     etalonsname = {}
     etalonsprops = {}
-    with open("etalonsname.csv", "r", newline="") as f:
-        etalonsname = dict(csv.reader(f))
-    with open("etalonsprops.csv", "r", newline="") as f:
-        etalonsprops = dict(csv.reader(f))
+    with open('etalons.bin', "rb") as f:
+        etalonsname = pickle.load(f)
+    with open('etalonsprops.bin', "rb") as f:
+        etalonsprops = pickle.load(f)
  
     ans = []
     for i, j in zip(Xname.values(), Xprops):
@@ -80,8 +77,8 @@ def model_T(data_goods):
         props_matches = 0 # число совпадений в свойствах
         tmp_ans = 0
         for k, l, m in zip(etalonsname.keys(), etalonsname.values(), etalonsprops.values()):
-            tmp_name_matches = len(i & l)
-            tmp_props_matches = len(m & j)
+            tmp_name_matches = len(i & set(l))
+            tmp_props_matches = len(j & set(m))
             if tmp_name_matches + tmp_props_matches > name_matches + props_matches or \
                tmp_name_matches + tmp_props_matches == name_matches + props_matches and tmp_props_matches > props_matches:
                     name_matches = tmp_name_matches

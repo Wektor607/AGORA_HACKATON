@@ -11,6 +11,8 @@ from sklearn.ensemble import ExtraTreesClassifier
 import sys
 import joblib
 
+ET_PATH = 'model_ET.bin'
+
 def make_colors_dict():    
     f = codecs.open('russian_colors.txt', 'r', "utf-8")
     rus_words = [line.strip() for line in f]
@@ -80,8 +82,8 @@ def model_T(agora_data, data_goods):
                 tmp_ans = k
         # если имя товара совпадает менее чем на четверть с наиболее подходящим эталоном,
         # то не выбираем эталона
-        if name_matches / len(etalonsname[tmp_ans]) < 0.25:
-            ans.append('0')
+        if comp_name / len(etalonsname[tmp_ans]) < 0.25:
+            ans.append(None)
         # иначе получаем id эталона с наибольши числом соответствий
         else: ans.append(tmp_ans)
     return agora_data_goods.product_id, ans
@@ -126,14 +128,16 @@ def test_ET(forest, agora_data, data_goods):
     ids = np.sum(matr<0, axis=1) == matr.shape[1]
     ans[ids] = None
     
-    print(accuracy_score(y, ans))
-    return data_goods.id, ans
+    print(f'Accuracy ExtraTreeCl {100*accuracy_score(y, ans):.3f}%')
+    return data_goods.product_id, ans
 
 if __name__=='__main__':
-    data_goods = pd.read_json(json_file) # получаем файл с товарами 
+     
     agora_data = pd.read_json('agora_hack_products.json')
+    data_goods = agora_data[agora_data['is_reference'] == False]
     if(sys.argv[1] == 'token'):
         id_product_1, ref_id_1 = model_T(agora_data, data_goods)
+        print(f'Accuracy token: {100 * accuracy_score(data_goods["reference_id"], ref_id_1):.3f}%')
         res_T = pd.DataFrame({"id":id_product_1, "reference_id":ref_id_1})
     if sys.argv[1] == 'train':    
         train_ET(agora_data, data_goods)
@@ -141,9 +145,3 @@ if __name__=='__main__':
         forest = joblib.load('model_ET.bin')
         id_product_2, ref_id_2 = test_ET(forest, agora_data, data_goods)
         res_ET = pd.DataFrame({"id":id_product_2, "reference_id":ref_id_2})
-    
-    # result = res.to_json(orient="records")
-    # parsed = json.loads(result)
-    # with open("result.json", "w") as file:
-    #     json.dump(parsed, file, indent=4)
-    # file.close()

@@ -42,7 +42,8 @@ def main(json_file):
     parsed = json.loads(result)
     with open("result1.json", "w") as file:
         json.dump(parsed, file, indent=4)
-
+    file.close()
+    
 goods = input()
 main(goods)
 

@@ -18,6 +18,7 @@ TFIDF_SHAPE = 3657
 TFIDF_PATH = 'tfidf.bin'
 KNN_PATH = 'knn.bin'
 NET_PATH = 'arc_net.pth'
+ENCODER_PATH='encoder.bin'
 
 
 class MyCustomDataset(Dataset):
@@ -25,7 +26,7 @@ class MyCustomDataset(Dataset):
                  X,
                  y,
                  encoder,
-                 scaler = scaler,
+                 scaler,
                 ):
         ## list of tuples: (img, label)
         self._items = []
@@ -165,7 +166,8 @@ def test_knn(emb_net, knn, dl_test, is_normalize=False):
 def prepare_data(
         train_path: str = 'train.csv', 
         val_path: str = 'val.csv', 
-        test_path: str = 'test.csv'
+        test_path: str = 'test.csv',
+        fit: bool = True
         ):
     train_t = pd.read_csv(train_path)
     val_t = pd.read_csv(val_path)
@@ -181,15 +183,16 @@ def prepare_data(
 
     encoder = {i: k for k, i in enumerate(np.unique(y_train))}
 
-    scaler.fit(X_train)
+    if fit:
+        scaler.fit(X_train)
 
     return X_train, y_train, X_val, y_val, X_test, y_test, encoder
 
-def train_model(X_train, X_val, y_train, y_val, encoder):
+def train_model(X_train, X_val, y_train, y_val, encoder, scaler):
     L_train = np.stack([*X_train, *X_val], axis=0)
     Ly_train = np.stack([*y_train, *y_val], axis=0)
 
-    dL_train = MyCustomDataset(L_train, Ly_train, encoder=encoder)
+    dL_train = MyCustomDataset(L_train, Ly_train, encoder=encoder, scaler=scaler)
     arc_train_dl1 = DataLoader(dL_train, 32, num_workers=0)
 
     net_arc = ArcNet(EmbeddingNet(), train_classes=len(encoder.keys()))
@@ -198,10 +201,10 @@ def train_model(X_train, X_val, y_train, y_val, encoder):
 
     return net_arc
 
-def dataLoaderData(X_train, X_val, X_test, y_train, y_val, y_test, encoder):
-    ds_train = MyCustomDataset(X_train, y_train, encoder=encoder)
-    ds_val = MyCustomDataset(X_val, y_val, encoder=encoder)
-    ds_test = MyCustomDataset(X_test, y_test, encoder=encoder)
+def dataLoaderData(X_train, X_val, X_test, y_train, y_val, y_test, encoder, scaler):
+    ds_train = MyCustomDataset(X_train, y_train, encoder=encoder, scaler=scaler)
+    ds_val = MyCustomDataset(X_val, y_val, encoder=encoder, scaler=scaler)
+    ds_test = MyCustomDataset(X_test, y_test, encoder=encoder, scaler=scaler)
 
     dl_train = DataLoader(ds_train, batch_size=32, shuffle=True, num_workers=0)
     dl_val = DataLoader(ds_val, batch_size=32, shuffle=False, num_workers=0)
@@ -222,8 +225,8 @@ def train_head(net_arc, dl_train, dl_test, test: bool = True):
 def save_net(net, path: str):
     torch.save(net.state_dict(), path)
 
-def load_net(encoder, path: str = NET_PATH):
-    test_net = ArcNet(EmbeddingNet(), train_classes=len(encoder.keys()))
+def load_net(path: str = NET_PATH):
+    test_net = ArcNet(EmbeddingNet(), train_classes=471)
     test_net.load_state_dict(torch.load(path))
 
     return test_net
@@ -231,6 +234,7 @@ def load_net(encoder, path: str = NET_PATH):
 def save_sklearn_model(model, path: str):
     modelFile = open(path, 'wb') 
     pickle.dump(model, modelFile) 
+    modelFile.close()
 
 def load_sklearn_model(path: str):
     model = pickle.load(open(path, 'rb'))
@@ -240,6 +244,7 @@ def load_sklearn_model(path: str):
 if __name__=='__main__':
     if sys.argv[1] == 'train':
         X_train, y_train, X_val, y_val, X_test, y_test, encoder = prepare_data()
+        save_sklearn_model(encoder, ENCODER_PATH)
 
         net = train_model(X_train, X_val, y_train, y_val, encoder)
 
@@ -250,12 +255,16 @@ if __name__=='__main__':
         save_sklearn_model(scaler, TFIDF_PATH)
         save_sklearn_model(head, KNN_PATH)
     elif sys.argv[1] == 'test':
-        X_train, y_train, X_val, y_val, X_test, y_test, encoder = prepare_data()
-        net = load_net(encoder)
+        encoder = load_sklearn_model(ENCODER_PATH)
+        X_train, y_train, X_val, y_val, X_test, y_test, _ = prepare_data(fit=False)
+    
+        net = load_net()
         net.eval()
+        net.emb_net.to('cpu')
+
         scaler = load_sklearn_model(TFIDF_PATH)
         head = load_sklearn_model(KNN_PATH)
 
-        dl_train, dl_val, dl_test = dataLoaderData(X_train, X_val, X_test, y_train, y_val, y_test, encoder)
-        
+        dl_train, dl_val, dl_test = dataLoaderData(X_train, X_val, X_test, y_train, y_val, y_test, encoder, scaler)
+
         test_knn(net.emb_net, head, dl_test, is_normalize=True)

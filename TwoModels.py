@@ -11,48 +11,52 @@ from sklearn.ensemble import ExtraTreesClassifier
 import sys
 import joblib
 
-def color(rus_file, eng_file):    
-    f = codecs.open(rus_file, 'r', "utf-8")
+def make_colors_dict():    
+    f = codecs.open('russian_colors.txt', 'r', "utf-8")
     rus_words = [line.strip() for line in f]
-    f1 = open(eng_file, 'r')
+    f1 = open('english_colors.txt', 'r')
     eng_words = [line.strip() for line in f1]
 
     colors = dict(zip(eng_words, rus_words))
     return colors
 
-def make_tokens(input_str, reg, colors):
+def make_tokens(input_str):
+    # отбрасываем небуквенные и нецифровые символы и разбиваем строку на отдельные слова
+    reg = re.compile('[^a-zа-я0-9 ]')
     tokens = input_str.lower().replace("/", " ").replace("-", " ").replace("\t", " ").replace("pro", " pro")
-    tokens = reg.sub('', tokens).replace("ё", "е").replace("ghz", "ггц").replace("gb", "гб")
+    tokens = reg.sub(' ', tokens).replace("ё", "е").replace("ghz", "ггц").replace("gb", "гб")
     tokens = tokens.split(" ")
+    colors = make_colors_dict()
     new_tokens = []
     for i in tokens:
+        # перевод всех цветов на русский
         if i in colors.keys():
             i = colors[i]
-        new_tokens += re.findall(r'[a-zа-я]+', i)
-        new_tokens += re.findall(r'\d+', i)
+        if len(i) > 1 or i.isdigit():
+            # разбиваем буквенно-цифровые токены на цифровые и буквенные
+            new_tokens += re.findall(r'[a-zа-я]+', i)
+            new_tokens += re.findall(r'\d+', i)
     return new_tokens
 
+# tokenization model
 def model_T(agora_data, data_goods):
     agora_data_goods = data_goods
     agora_data_prime = agora_data[agora_data['is_reference'] == True]
 
-    colors = color('russian_colors.txt', 'english_colors.txt')
-
     Xname = {}
     Xprops = []
-    reg = re.compile('[^a-zа-я0-9 ]')
     for index, row in agora_data_goods.iterrows():
-        tmp = make_tokens(row['name'], reg, colors)
+        tmp = make_tokens(row['name'])
         Xname[agora_data_goods.product_id[index]] = set(tmp)
-        tmp = make_tokens(' '.join(row['props']), reg, colors)
+        tmp = make_tokens(' '.join(row['props']))
         Xprops.append(set(tmp))
 
     etalonsname = {}
     etalonsprops = []
     for index, row in agora_data_prime.iterrows():
-        tmp = make_tokens(row['name'], reg, colors)
+        tmp = make_tokens(row['name'])
         etalonsname[agora_data_prime.product_id[index]] = set(tmp)
-        tmp = make_tokens(' '.join(row['props']), reg, colors)
+        tmp = make_tokens(' '.join(row['props']))
         etalonsprops.append(set(tmp))
 
     y = np.array(agora_data_goods.reference_id)
@@ -74,10 +78,13 @@ def model_T(agora_data, data_goods):
                 comp_name = len(i & l)
                 comp_props = len(m & j)
                 tmp_ans = k
-        ans.append(tmp_ans)
-    
-    print(accuracy_score(y, ans))
-    return agora_data_goods.id, ans
+        # если имя товара совпадает менее чем на четверть с наиболее подходящим эталоном,
+        # то не выбираем эталона
+        if name_matches / len(etalonsname[tmp_ans]) < 0.25:
+            ans.append('0')
+        # иначе получаем id эталона с наибольши числом соответствий
+        else: ans.append(tmp_ans)
+    return agora_data_goods.product_id, ans
     
 def prepare_data(agora_data, data_goods):
     agora_data_goods = data_goods

@@ -19,6 +19,8 @@ TFIDF_PATH = 'tfidf.bin'
 KNN_PATH = 'knn.bin'
 NET_PATH = 'arc_net.pth'
 ENCODER_PATH='encoder.bin'
+EXTRATREE_PATH = 'et.bin'
+DECODER_PATH = 'decoder.bin'
 
 
 class MyCustomDataset(Dataset):
@@ -129,25 +131,27 @@ class EmbeddingNet(nn.Module):
         output = self.net(x)
         return output
 
-def train_knn(emb_net, dl_train, is_normalize=False):
+def train_knn(emb_net, dl_train, decoder, is_normalize=False):
     data_x = []
     data_y = []
     with torch.no_grad():
         for data in dl_train:
-            inputs, labels = data[0], data[1]
+            inputs, labels = data[0], data[1].detach().cpu().numpy()
             feats = emb_net(inputs, cudaaa=False).detach().cpu().numpy()
             
             data_x.append(feats)
-            data_y.append(labels)
+            data_y.append([decoder[i] for i in labels])
+            
     data_x = np.concatenate(data_x, axis=0)
     data_y = np.concatenate(data_y, axis=0)
     
-    knn = KNeighborsClassifier(n_neighbors=1, metric='cosine') 
+    from sklearn.ensemble import ExtraTreesClassifier
+    knn = ExtraTreesClassifier()
     knn = knn.fit(data_x, data_y)
     
     return knn
 
-def test_knn(emb_net, knn, dl_test, is_normalize=False):
+def test_knn(emb_net, knn, dl_test, decoder, is_normalize=False):
     total_correct = 0
     total_cnt = 0
     with torch.no_grad():
@@ -155,7 +159,9 @@ def test_knn(emb_net, knn, dl_test, is_normalize=False):
             inputs, labels = data[0], data[1].detach().cpu().numpy()
             feats = emb_net(inputs, cudaaa=False).detach().cpu().numpy()
             preds = knn.predict(feats)
-            
+
+
+            labels = np.array([decoder[i] for i in labels])
             total_correct += (preds == labels).sum()
             total_cnt += len(preds)
     
@@ -213,16 +219,16 @@ def dataLoaderData(X_train, X_val, X_test, y_train, y_val, y_test, encoder, scal
     return dl_train, dl_val, dl_test
 
 
-def train_head(net_arc, dl_train, dl_test, test: bool = True):
+def train_head(net_arc, dl_train, dl_test, decoder, test: bool = True):
     net_arc.eval()
     net_arc.emb_net.to('cpu')
-    knn = train_knn(net_arc.emb_net, dl_train, is_normalize=True)
+    knn = train_knn(net_arc.emb_net, dl_train, is_normalize=True, decoder=decoder)
     if test:
-        test_knn(net_arc.emb_net, knn, dl_test, is_normalize=True)
+        test_knn(net_arc.emb_net, knn, dl_test, is_normalize=True, decoder=decoder)
 
     return knn
 
-def save_net(net, path: str):
+def save_net(net, path: str = NET_PATH):
     torch.save(net.state_dict(), path)
 
 def load_net(path: str = NET_PATH):
@@ -241,21 +247,49 @@ def load_sklearn_model(path: str):
 
     return model
 
+def arc_predict(name, props, scaler, net, head):
+    a = props.str.join('.')
+    a = a.str.split('\t')
+    a = a.str.join(' ')
+
+    merged_str =  name + '. ' + a+'.'
+    merged_vec = torch.from_numpy(scaler.transform(merged_str).toarray())
+
+    feats = net.emb_net(merged_vec, cudaaa=False).detach().cpu().numpy()
+    preds = head.predict(feats)
+
+    matr = head.predict_proba(feats)
+    matr[matr<0.1] = -1
+    ids = np.sum(matr<0, axis=1) == 471
+    preds[ids] = None
+
+    return preds
+
 if __name__=='__main__':
-    if sys.argv[1] == 'train':
+    if len(sys.argv) > 1 and sys.argv[1] == 'train':
         X_train, y_train, X_val, y_val, X_test, y_test, encoder = prepare_data()
-        save_sklearn_model(encoder, ENCODER_PATH)
+        if len(sys.argv) > 2 and sys.argv[2] == 'true':
+            save_sklearn_model(encoder, ENCODER_PATH)
+        decoder = {i: k for i, k in zip(encoder.values(), encoder.keys())}
+        if len(sys.argv) > 3 and sys.argv[3] == 'true':
+            save_sklearn_model(decoder, DECODER_PATH)
 
-        net = train_model(X_train, X_val, y_train, y_val, encoder)
+        net = train_model(X_train, X_val, y_train, y_val, encoder, scaler)
+        if len(sys.argv) > 4 and sys.argv[4] == 'true':
+            save_net(net)
 
-        dl_train, dl_val, dl_test = dataLoaderData(X_train, X_val, X_test, y_train, y_val, y_test, encoder)
+        dl_train, dl_val, dl_test = dataLoaderData(X_train, X_val, X_test, y_train, y_val, y_test, encoder, scaler)
         
-        head = train_head(net, dl_train, dl_test)
+        head = train_head(net, dl_train, dl_test, decoder=decoder)
 
-        save_sklearn_model(scaler, TFIDF_PATH)
-        save_sklearn_model(head, KNN_PATH)
-    elif sys.argv[1] == 'test':
+        if len(sys.argv) > 5 and sys.argv[5] == 'true':
+            save_sklearn_model(scaler, TFIDF_PATH)
+        if len(sys.argv) > 6 and sys.argv[6] == 'true':
+            save_sklearn_model(head, EXTRATREE_PATH)
+    elif len(sys.argv) > 1 and sys.argv[1] == 'test':
         encoder = load_sklearn_model(ENCODER_PATH)
+        decoder = load_sklearn_model(DECODER_PATH)
+        
         X_train, y_train, X_val, y_val, X_test, y_test, _ = prepare_data(fit=False)
     
         net = load_net()
@@ -263,8 +297,34 @@ if __name__=='__main__':
         net.emb_net.to('cpu')
 
         scaler = load_sklearn_model(TFIDF_PATH)
-        head = load_sklearn_model(KNN_PATH)
+        head = load_sklearn_model(EXTRATREE_PATH)
 
         dl_train, dl_val, dl_test = dataLoaderData(X_train, X_val, X_test, y_train, y_val, y_test, encoder, scaler)
 
-        test_knn(net.emb_net, head, dl_test, is_normalize=True)
+        test_knn(net.emb_net, head, dl_test, is_normalize=True, decoder=decoder)
+    elif len(sys.argv) > 1 and sys.argv[1] == 'check':
+
+        import time
+        start = time.time()
+
+        data = pd.read_json('agora_hack_products.json')
+        data = data[data['is_reference']==False]
+        name = data['name']
+        props =  data['props']
+
+        net = load_net()
+        net.eval()
+        net.emb_net.to('cpu')
+
+        scaler = load_sklearn_model(TFIDF_PATH)
+        head = load_sklearn_model(EXTRATREE_PATH)
+
+        preds = arc_predict(name, props, scaler, net, head)
+        
+        delta = time.time() - start
+        print(f'TIME IS {delta:.3f}s, DATA SHAPE IS {preds.shape[0]} 100 rows for {100 * delta/preds.shape[0]:.3f}s')
+        
+        from sklearn.metrics import accuracy_score
+        print(f'ALL DATA ACCURACY {100*accuracy_score(preds, data["reference_id"]):.3f}%')
+    else:
+        print('Run script python arcNet.py MODE[train, test, check]\n\t[TRAIN: save encoder]true/false\n\t[TRAIN: save decoder]true/false\n\t[TRAIN: save NeuralNetwork]true/false\n\t[TRAIN: save TFIDF]true/false\n\t[TRAIN: save ExtraTreeClassifier -- head]true/false')

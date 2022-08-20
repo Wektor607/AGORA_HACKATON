@@ -41,59 +41,47 @@ def make_tokens(input_str):
     return new_tokens
 
 # tokenization model
-def model_T(agora_data, data_goods):
-    agora_data_goods = data_goods
-    agora_data_prime = agora_data[agora_data['is_reference'] == True]
-
+def model_T(data_goods):
     Xname = {}
     Xprops = []
-    for index, row in agora_data_goods.iterrows():
+    for index, row in data_goods.iterrows():
         tmp = make_tokens(row['name'])
-        Xname[agora_data_goods.product_id[index]] = set(tmp)
+        Xname[data_goods.product_id[index]] = set(tmp)
         tmp = make_tokens(' '.join(row['props']))
         Xprops.append(set(tmp))
 
     etalonsname = {}
-    etalonsprops = []
-    for index, row in agora_data_prime.iterrows():
-        tmp = make_tokens(row['name'])
-        etalonsname[agora_data_prime.product_id[index]] = set(tmp)
-        tmp = make_tokens(' '.join(row['props']))
-        etalonsprops.append(set(tmp))
-
-    y = np.array(agora_data_goods.reference_id)
-
+    etalonsprops = {}
+    with open("etalonsname.csv", "r", newline="") as f:
+        etalonsname = dict(csv.reader(f))
+    with open("etalonsprops.csv", "r", newline="") as f:
+        etalonsprops = dict(csv.reader(f))
+ 
     ans = []
     for i, j in zip(Xname.values(), Xprops):
-        comp_name = 0 # число совпадений в имени
-        comp_props = 0 # число совпадений в свойствах
+        name_matches = 0 # число совпадений в имени
+        props_matches = 0 # число совпадений в свойствах
         tmp_ans = 0
-        for k, l, m in zip(etalonsname.keys(), etalonsname.values(), etalonsprops):
-            # если общее число совпадений у двух эталонов равняется
-            if len(i & l) + len(m & j) == comp_name + comp_props:
-                # выбираем эталон, с которым совпало больше свойств
-                if len(m & j) > comp_props:
-                    comp_name = len(i & l)
-                    comp_props = len(m & j)
+        for k, l, m in zip(etalonsname.keys(), etalonsname.values(), etalonsprops.values()):
+            tmp_name_matches = len(i & l)
+            tmp_props_matches = len(m & j)
+            if tmp_name_matches + tmp_props_matches > name_matches + props_matches or \
+               tmp_name_matches + tmp_props_matches == name_matches + props_matches and tmp_props_matches > props_matches:
+                    name_matches = tmp_name_matches
+                    props_matches = tmp_props_matches
                     tmp_ans = k
-            if (len(i & l) + len(m & j) > comp_name + comp_props):
-                comp_name = len(i & l)
-                comp_props = len(m & j)
-                tmp_ans = k
         # если имя товара совпадает менее чем на четверть с наиболее подходящим эталоном,
-        # то не выбираем эталона
-        if comp_name / len(etalonsname[tmp_ans]) < 0.25:
-            ans.append(None)
-        # иначе получаем id эталона с наибольши числом соответствий
+        # то не выбираем эталон вовсе
+        if name_matches / len(etalonsname[tmp_ans]) < 0.25:
+            ans.append('0')
+        # получаем id эталона с наибольши числом соответствий
         else: ans.append(tmp_ans)
-    return agora_data_goods.product_id, ans
+    return data_goods.product_id, ans
     
 def prepare_data(agora_data, data_goods):
-    agora_data_goods = data_goods
-    
     X = []
     y = []
-    for index, row in agora_data_goods.iterrows():
+    for index, row in data_goods.iterrows():
         tmp = row['name']
         X.append(tmp)
         y.append(row.reference_id)
@@ -120,7 +108,14 @@ def train_ET(agora_data, data_goods):
 #     print(accuracy_score(y, ans))
 
 def test_ET(forest, agora_data, data_goods):
-    y, X_vec = prepare_data(agora_data, data_goods)
+    X = []
+    for index, row in data_goods.iterrows():
+        tmp = row['name']
+        X.append(tmp)
+    X = np.array(X)
+    scaler = TfidfVectorizer()
+    scaler.fit(X)
+    X_vec = scaler.transform(X)
     ans = forest.predict(X_vec)     
     matr = forest.predict_proba(X_vec)
     
@@ -132,11 +127,12 @@ def test_ET(forest, agora_data, data_goods):
     return data_goods.product_id, ans
 
 if __name__=='__main__':
-     
     agora_data = pd.read_json('agora_hack_products.json')
+    # request_data = pd.read_json('request.json')
     data_goods = agora_data[agora_data['is_reference'] == False]
     if(sys.argv[1] == 'token'):
-        id_product_1, ref_id_1 = model_T(agora_data, data_goods)
+        id_product_1, ref_id_1 = model_T(data_goods)
+       #id_product_1, ref_id_1 = model_T(request_data)
         print(f'Accuracy token: {100 * accuracy_score(data_goods["reference_id"], ref_id_1):.3f}%')
         res_T = pd.DataFrame({"id":id_product_1, "reference_id":ref_id_1})
     if sys.argv[1] == 'train':    
@@ -144,4 +140,6 @@ if __name__=='__main__':
     if sys.argv[1] == 'test':
         forest = joblib.load('model_ET.bin')
         id_product_2, ref_id_2 = test_ET(forest, agora_data, data_goods)
+       #id_product_2, ref_id_2 = test_ET(forest, agora_data, request_data)
         res_ET = pd.DataFrame({"id":id_product_2, "reference_id":ref_id_2})
+        

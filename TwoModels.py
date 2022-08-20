@@ -10,6 +10,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import ExtraTreesClassifier
 import sys
 import joblib
+import csv
 
 ET_PATH = 'model_ET.bin'
 
@@ -39,6 +40,22 @@ def make_tokens(input_str):
             new_tokens += re.findall(r'[a-zа-я]+', i)
             new_tokens += re.findall(r'\d+', i)
     return new_tokens
+
+def train_T(agora_data_prime):
+    etalonsname = {}
+    etalonsprops = {}
+    for index, row in agora_data_prime.iterrows():
+        tmp = make_tokens(row['name'])
+        etalonsname[agora_data_prime.product_id[index]] = set(tmp)
+        tmp = make_tokens(' '.join(row['props']))
+        etalonsprops[agora_data_prime.product_id[index]] = set(tmp)
+
+    with open("etalonsname.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerows(etalonsname.items())
+    with open("etalonsprops.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerows(etalonsprops.items())
 
 # tokenization model
 def model_T(data_goods):
@@ -107,7 +124,7 @@ def train_ET(agora_data, data_goods):
 #     print('Время:', t, 'Количество:', len(X), 'Скорость:', 100 * t / len(X))
 #     print(accuracy_score(y, ans))
 
-def test_ET(forest, agora_data, data_goods):
+def test_ET(forest, data_goods):
     X = []
     for index, row in data_goods.iterrows():
         tmp = row['name']
@@ -137,9 +154,10 @@ if __name__=='__main__':
         res_T = pd.DataFrame({"id":id_product_1, "reference_id":ref_id_1})
     if sys.argv[1] == 'train':    
         train_ET(agora_data, data_goods)
+        train_T(agora_data[agora_data['is_reference'] == True])
     if sys.argv[1] == 'test':
         forest = joblib.load('model_ET.bin')
-        id_product_2, ref_id_2 = test_ET(forest, agora_data, data_goods)
-       #id_product_2, ref_id_2 = test_ET(forest, agora_data, request_data)
+        id_product_2, ref_id_2 = test_ET(forest, data_goods)
+       #id_product_2, ref_id_2 = test_ET(forest, request_data)
         res_ET = pd.DataFrame({"id":id_product_2, "reference_id":ref_id_2})
         

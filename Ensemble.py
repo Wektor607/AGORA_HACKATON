@@ -10,12 +10,12 @@ def extract_predictions(data):
 
     start_ET = time()
     ET_classifier = joblib.load('model_ET.bin')
-    _, ET_predictions = TwoModels.test_ET(ET_classifier, data, data_goods)
+    _, ET_predictions = TwoModels.test_ET(ET_classifier, data_goods)
 
     print(f'ET {time()-start_ET}')
 
     start_T = time()
-    _, Token_predictions = TwoModels.model_T(data, data_goods)
+    _, Token_predictions = TwoModels.model_T(data_goods)
 
     print(f'T {time()-start_T}')
 

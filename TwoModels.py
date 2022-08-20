@@ -140,7 +140,6 @@ def test_ET(forest, data_goods):
     ids = np.sum(matr<0, axis=1) == matr.shape[1]
     ans[ids] = None
     
-    print(f'Accuracy ExtraTreeCl {100*accuracy_score(y, ans):.3f}%')
     return data_goods.product_id, ans
 
 if __name__=='__main__':

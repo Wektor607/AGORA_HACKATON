@@ -12,6 +12,7 @@ import joblib
 import pickle
 
 ET_PATH = 'model_ET.bin'
+ET_TFIDF_PATH = 'model_ET_tfidf.bin'
 
 def make_colors_dict():    
     f = codecs.open('russian_colors.txt', 'r', "utf-8")
@@ -72,18 +73,15 @@ def model_T(data_goods):
         etalonsprops = pickle.load(f)
  
     ans = []
-    et_id = etalonsname.keys() 
-    et_names = etalonsname.values() 
-    et_props = etalonsprops.values() 
-    for i, j in zip(Xname.values(), Xprops): 
-        name_matches = 0 # число совпадений в имени 
-        props_matches = 0 # число совпадений в свойствах 
-        tmp_ans = 0 
-        for k, l, m in zip(et_id, et_names, et_props):
+    for i, j in zip(Xname.values(), Xprops):
+        name_matches = 0 # число совпадений в имени
+        props_matches = 0 # число совпадений в свойствах
+        tmp_ans = 0
+        for k, l, m in zip(etalonsname.keys(), etalonsname.values(), etalonsprops.values()):
             tmp_name_matches = len(i & set(l))
             tmp_props_matches = len(j & set(m))
-            if tmp_props_matches > props_matches and tmp_name_matches + tmp_props_matches == name_matches + props_matches\
-            or tmp_name_matches + tmp_props_matches > name_matches + props_matches:
+            if tmp_name_matches + tmp_props_matches > name_matches + props_matches or \
+               tmp_name_matches + tmp_props_matches == name_matches + props_matches and tmp_props_matches > props_matches:
                     name_matches = tmp_name_matches
                     props_matches = tmp_props_matches
                     tmp_ans = k
@@ -95,7 +93,7 @@ def model_T(data_goods):
         else: ans.append(tmp_ans)
     return data_goods.product_id, ans
     
-def prepare_data(data_goods):
+def prepare_data(agora_data, data_goods):
     X = []
     y = []
     for index, row in data_goods.iterrows():
@@ -105,27 +103,27 @@ def prepare_data(data_goods):
     X = np.array(X)
     y = np.array(y)
     
-    scaler = TfidfVectorizer()
-    scaler.fit(X)
+    scaler = pickle.load(open(ET_TFIDF_PATH, 'rb'))
     X_vec = scaler.transform(X)
     
     return y, X_vec
 
-def train_ET(data_goods):
-    y, X_vec = prepare_data(data_goods)
+def train_ET(agora_data, data_goods):
+    y, X_vec = prepare_data(agora_data, data_goods)
     forest = ExtraTreesClassifier()
     forest.fit(X_vec, y)
-    filename = 'model_ET.bin'
+    filename = 'model_ET1.bin'
     joblib.dump(forest, filename)
     
+#     start = time.time()
+    
+#     t = time.time()-start
+#     print('Время:', t, 'Количество:', len(X), 'Скорость:', 100 * t / len(X))
+#     print(accuracy_score(y, ans))
+
 def test_ET(forest, data_goods):
-    X = []
-    for index, row in data_goods.iterrows():
-        tmp = row['name']
-        X.append(tmp)
-    X = np.array(X)
-    scaler = TfidfVectorizer()
-    scaler.fit(X)
+    X = data_goods['name'].to_numpy()
+    scaler = pickle.load(open(ET_TFIDF_PATH, 'rb'))
     X_vec = scaler.transform(X)
     ans = forest.predict(X_vec)     
     matr = forest.predict_proba(X_vec)
@@ -138,14 +136,21 @@ def test_ET(forest, data_goods):
 
 if __name__=='__main__':
     agora_data = pd.read_json('agora_hack_products.json')
-    data_goods = agora_data[agora_data['is_reference'] == False]
+    agora_data = pd.read_csv('Teee.csv')
+    # request_data = pd.read_json('request.json')
+    data_goods = agora_data#agora_data[agora_data['is_reference'] == False]
     if(sys.argv[1] == 'token'):
         id_product_1, ref_id_1 = model_T(data_goods)
+       #id_product_1, ref_id_1 = model_T(request_data)
+        print(f'Accuracy token: {100 * accuracy_score(data_goods["reference_id"], ref_id_1):.3f}%')
         res_T = pd.DataFrame({"id":id_product_1, "reference_id":ref_id_1})
     if sys.argv[1] == 'train':    
-        train_ET(data_goods)
+        train_ET(agora_data, data_goods)
         train_T(agora_data[agora_data['is_reference'] == True])
     if sys.argv[1] == 'test':
-        forest = joblib.load('model_ET.bin')
+        forest = joblib.load('model_ET1.bin')
         id_product_2, ref_id_2 = test_ET(forest, data_goods)
+       #id_product_2, ref_id_2 = test_ET(forest, request_data)
         res_ET = pd.DataFrame({"id":id_product_2, "reference_id":ref_id_2})
+        print(accuracy_score(data_goods['reference_id'], ref_id_2))
+        

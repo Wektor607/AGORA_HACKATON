@@ -146,7 +146,7 @@ def train_knn(emb_net, dl_train, decoder, is_normalize=False):
     data_y = np.concatenate(data_y, axis=0)
     
     from sklearn.ensemble import ExtraTreesClassifier
-    knn = ExtraTreesClassifier()
+    knn = KNeighborsClassifier(n_neighbors=1)
     knn = knn.fit(data_x, data_y)
     
     return knn
@@ -259,9 +259,6 @@ def arc_predict(name, props, scaler, net, head):
     preds = head.predict(feats)
 
     matr = head.predict_proba(feats)
-    matr[matr<0.1] = -1
-    ids = np.sum(matr<0, axis=1) == 471
-    preds[ids] = None
 
     return preds
 
@@ -274,7 +271,9 @@ if __name__=='__main__':
         if len(sys.argv) > 3 and sys.argv[3] == 'true':
             save_sklearn_model(decoder, DECODER_PATH)
 
-        net = train_model(X_train, X_val, y_train, y_val, encoder, scaler)
+        TTrain = np.stack([*X_train, *X_test], axis=0)
+        yytrain = np.stack([*y_train, *y_test], axis=0)
+        net = train_model(TTrain, X_val, yytrain, y_val, encoder, scaler)
         if len(sys.argv) > 4 and sys.argv[4] == 'true':
             save_net(net)
 
@@ -285,7 +284,7 @@ if __name__=='__main__':
         if len(sys.argv) > 5 and sys.argv[5] == 'true':
             save_sklearn_model(scaler, TFIDF_PATH)
         if len(sys.argv) > 6 and sys.argv[6] == 'true':
-            save_sklearn_model(head, EXTRATREE_PATH)
+            save_sklearn_model(head, KNN_PATH)
     elif len(sys.argv) > 1 and sys.argv[1] == 'test':
         encoder = load_sklearn_model(ENCODER_PATH)
         decoder = load_sklearn_model(DECODER_PATH)
@@ -297,10 +296,13 @@ if __name__=='__main__':
         net.emb_net.to('cpu')
 
         scaler = load_sklearn_model(TFIDF_PATH)
-        head = load_sklearn_model(EXTRATREE_PATH)
+        head = load_sklearn_model(KNN_PATH)
 
         dl_train, dl_val, dl_test = dataLoaderData(X_train, X_val, X_test, y_train, y_val, y_test, encoder, scaler)
 
+        if len(sys.argv) > 2 and sys.argv[2] == 'true':
+            head = train_head(net, dl_train, dl_test, decoder=decoder)
+            save_sklearn_model(head, KNN_PATH)
         test_knn(net.emb_net, head, dl_test, is_normalize=True, decoder=decoder)
     elif len(sys.argv) > 1 and sys.argv[1] == 'check':
 
@@ -317,7 +319,7 @@ if __name__=='__main__':
         net.emb_net.to('cpu')
 
         scaler = load_sklearn_model(TFIDF_PATH)
-        head = load_sklearn_model(EXTRATREE_PATH)
+        head = load_sklearn_model(KNN_PATH)
 
         preds = arc_predict(name, props, scaler, net, head)
         
@@ -327,4 +329,4 @@ if __name__=='__main__':
         from sklearn.metrics import accuracy_score
         print(f'ALL DATA ACCURACY {100*accuracy_score(preds, data["reference_id"]):.3f}%')
     else:
-        print('Run script python arcNet.py MODE[train, test, check]\n\t[TRAIN: save encoder]true/false\n\t[TRAIN: save decoder]true/false\n\t[TRAIN: save NeuralNetwork]true/false\n\t[TRAIN: save TFIDF]true/false\n\t[TRAIN: save ExtraTreeClassifier -- head]true/false')
+        print('Run script python arcNet.py MODE[train, test, check]\n\t[TRAIN: save encoder; TEST: save head]true/false\n\t[TRAIN: save decoder]true/false\n\t[TRAIN: save NeuralNetwork]true/false\n\t[TRAIN: save TFIDF]true/false\n\t[TRAIN: save ExtraTreeClassifier -- head]true/false')

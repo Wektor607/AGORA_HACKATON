@@ -115,12 +115,6 @@ def train_ET(agora_data, data_goods):
     filename = 'model_ET.bin'
     joblib.dump(forest, filename)
     
-#     start = time.time()
-    
-#     t = time.time()-start
-#     print('Время:', t, 'Количество:', len(X), 'Скорость:', 100 * t / len(X))
-#     print(accuracy_score(y, ans))
-
 def test_ET(forest, data_goods):
     X = []
     for index, row in data_goods.iterrows():

@@ -136,9 +136,8 @@ def test_ET(forest, data_goods):
 
 if __name__=='__main__':
     agora_data = pd.read_json('agora_hack_products.json')
-    agora_data = pd.read_csv('Teee.csv')
     # request_data = pd.read_json('request.json')
-    data_goods = agora_data#agora_data[agora_data['is_reference'] == False]
+    data_goods = agora_data[agora_data['is_reference'] == False]
     if(sys.argv[1] == 'token'):
         id_product_1, ref_id_1 = model_T(data_goods)
        #id_product_1, ref_id_1 = model_T(request_data)

@@ -37,14 +37,6 @@ if __name__ == '__main__':
     data = pd.read_json('agora_hack_products.json')
     data_goods = data[data['is_reference']==False]
 
-    #train_t = pd.read_csv('TTT.csv')
-
-    #TwoModels.train_ET(train_t, train_t)
-
-    from time import time
-
-    data = pd.read_csv('Teee.csv')
-    data_goods = data
     start = time()
     ET_preds, Token_preds, NN_preds = extract_predictions(data)
 
